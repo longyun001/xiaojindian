@@ -1,0 +1,31 @@
+{
+  "name": "gold-shop-server",
+  "version": "1.0.0",
+  "description": "小金店旧料管理系统 - 后端服务",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev --name init",
+    "prisma:deploy": "prisma migrate deploy",
+    "prisma:studio": "prisma studio",
+    "seed": "node prisma/seed.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "cors": "^2.8.5",
+    "escpos": "^3.0.0-alpha.6",
+    "express": "^4.21.2",
+    "jsbarcode": "^3.11.6",
+    "morgan": "^1.10.0",
+    "multer": "^2.2.0",
+    "node-cron": "^3.0.3",
+    "sharp": "^0.35.2",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "prisma": "^5.22.0"
+  }
+}

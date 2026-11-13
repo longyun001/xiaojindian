@@ -1,0 +1,59 @@
+# Dependencies and generated builds
+node_modules/
+dist/
+dist-ssr/
+coverage/
+.vite/
+*.tsbuildinfo
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+.npmrc
+
+# Business databases and SQLite sidecars
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+
+# Business images, backups, exports and runtime state
+uploads/
+backups/
+exports/
+reports/
+outputs/
+.test-work/
+.data-lock/
+.restore-*/
+.restore-in-progress.json*
+*.codex-new
+*.codex-ui-new
+*.log
+*.zip
+*.7z
+*.bak
+
+# Local assistants' records and generated source bundles
+.workbuddy/
+.codex/
+.agents/
+overview.md
+数据维护说明.md
+完整项目代码*.md
+照片模块完整代码.md
+
+# Editor and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini

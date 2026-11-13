@@ -1,0 +1,289 @@
+// 小金店旧料管理系统 - Prisma Schema
+// 金额单位：分(INT)  重量单位：0.01克(INT)  纯度：万分比(INT)  金价：分/克(INT)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // 开发环境使用 sqlite；切换到 PostgreSQL 时改为：
+  //   provider = "postgresql"
+  //   url      = env("DATABASE_URL")  // postgresql://user:pass@host:5432/gold_shop
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============ 系统配置 ============
+model SystemConfig {
+  key   String @id
+  value String
+}
+
+// ============ 交易方（统一） ============
+model Party {
+  id        Int      @id @default(autoincrement())
+  type      String   // CUSTOMER | BUYER | SUPPLIER | OTHER
+  name      String?
+  phone     String?
+  company   String?
+  remark    String?
+  createdAt DateTime @default(now())
+
+  recycleOrders  RecycleOrder[]
+  exchangeOrders ExchangeOrder[]
+  sellOrders     SellOrder[]
+}
+
+// ============ 金价记录 ============
+// 含金、银、铂三类金属的市场价。各金属的回收价/出售价独立设置。
+// 银铂的 marketPrice 对应融通金网页上的白银/铂金行情价（作为市场参考价，类似黄金的融通金价）
+// 未设置某类金属时（如门店不收铂金），对应字段可为 0。
+model GoldPrice {
+  id                 Int      @id @default(autoincrement())
+  // 黄金
+  internationalPrice Int      // 国际金价（分/克）
+  rongtongjinPrice   Int      // 融通金价（分/克）
+  recyclePrice       Int      // 黄金回收价（分/克）
+  salePrice          Int      // 黄金出售价（分/克）
+  // 白银
+  silverRecyclePrice Int      @default(0) // 白银回收价（分/克）
+  silverSalePrice    Int      @default(0) // 白银出售价（分/克）
+  silverMarketPrice  Int      @default(0) // 白银市场行情价（分/克，融通金网页白银价）
+  // 铂金
+  platinumRecyclePrice Int    @default(0) // 铂金回收价（分/克）
+  platinumSalePrice   Int     @default(0) // 铂金出售价（分/克）
+  platinumMarketPrice Int     @default(0) // 铂金市场行情价（分/克，融通金网页铂金价）
+  createdAt          DateTime @default(now())
+}
+
+// ============ 回收订单 ============
+model RecycleOrder {
+  id                Int      @id @default(autoincrement())
+  orderNo           String   @unique
+  partyId           Int?
+  totalPureWeight   Int      // 总纯金重（0.01g）
+  totalAmount       Int      // 总金额（分）
+  recyclePrice      Int      // 交易时回收价（分/克）
+  rongtongjinPrice  Int      // 交易时融通金价（分/克）
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  party    Party?              @relation(fields: [partyId], references: [id])
+  items    RecycleOrderItem[]
+  payments Payment[]
+
+  @@index([partyId])
+}
+
+model RecycleOrderItem {
+  id          Int      @id @default(autoincrement())
+  orderId     Int
+  itemName    String
+  metalType   String   @default("GOLD") // GOLD | SILVER | PLATINUM
+  grossWeight Int      // 毛重（0.01g）
+  purity      Int      // 纯度（万分比，9999=99.99%，9990=99.90%）
+  pureWeight  Int      // 纯金重（0.01g）
+  unitPrice   Int      // 回收单价（分/0.01g）
+  amount      Int      // 金额（分）
+  order       RecycleOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}
+
+// ============ 库存 ============
+model InventoryItem {
+  id             Int      @id @default(autoincrement())
+  uniqueCode     String   @unique // INV+日期+流水
+  sourceType     String   // RECYCLE
+  sourceId       Int      // 关联回收明细ID
+  itemName       String
+  metalType      String   @default("GOLD") // GOLD | SILVER | PLATINUM
+  grossWeight    Int
+  purity         Int      // 纯度（万分比，9999=99.99%）
+  pureWeight     Int      // 纯金重（0.01g）
+  costAmount     Int      // 成本金额（分）
+  costPureWeight Int      // 成本对应纯金重（0.01g）
+  // 收旧时点的市场价格快照（分/克），用于终身追溯、按收旧时点估值、折扣率分析
+  // 黄金项：recyclePriceAtReceive + rongtongjinPriceAtReceive + internationalPriceAtReceive
+  // 银铂项：recyclePriceAtReceive + 对应金属的 marketPriceAtReceive（融通金行情价）
+  recyclePriceAtReceive      Int?  // 收旧时该金属回收单价（分/克）
+  rongtongjinPriceAtReceive  Int?  // 收旧时黄金融通金价（分/克，仅黄金有意义）
+  internationalPriceAtReceive Int? // 收旧时国际金价（分/克，仅黄金可选记录）
+  silverMarketPriceAtReceive   Int? // 收旧时白银市场行情价（分/克，仅白银项有意义）
+  platinumMarketPriceAtReceive Int? // 收旧时铂金市场行情价（分/克，仅铂金项有意义）
+  location       String   // 存放位置
+  status         String   @default("IN_STOCK") // IN_STOCK | EXCHANGED | SOLD
+  remark         String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  exchangeOldItems ExchangeOldItem[]
+  sellOrderItems   SellOrderItem[]
+  stocktakingItems StocktakingItem[]
+  photos           InventoryPhoto[]
+
+  @@index([status])
+  @@index([location])
+  @@index([metalType])
+}
+
+// ============ 库存影像档案 ============
+// 照片属于库存档案的一部分，仅用于追溯，不参与业务计算
+// 照片随库存件永久保留，不随订单状态变化删除
+model InventoryPhoto {
+  id          Int      @id @default(autoincrement())
+  inventoryId Int?     // 关联 InventoryItem.id，临时照片为null（回收录入阶段）
+  category    String   // OVERALL 整体照 | HALLMARK 钢印特写 | FLAW 瑕疵特殊部位
+  sortOrder   Int      @default(0) // 同分类下的排序
+  // 文件系统路径（相对路径，前端拼接 baseURL 访问）
+  originalPath String  // 压缩后原图（最长边1600px，JPEG 80%）
+  thumbPath    String  // 缩略图（300px，列表用）
+  largePath    String? // 大图（可选，当前与 originalPath 同）
+  fileName     String  // 原始文件名（用于下载时命名）
+  fileSize     Int     // 压缩后文件大小（字节）
+  createdAt    DateTime @default(now())
+
+  inventory InventoryItem? @relation(fields: [inventoryId], references: [id], onDelete: Restrict)
+
+  @@index([inventoryId])
+  @@index([category])
+}
+
+// ============ 以旧换新 ============
+model ExchangeOrder {
+  id             Int      @id @default(autoincrement())
+  orderNo        String   @unique
+  partyId        Int?
+  totalOldDeduct Int      // 旧料抵扣总额（分）
+  totalNewPrice  Int      // 新品总价（分）
+  laborFee       Int      // 工费（分）
+  receiveAmount  Int      // 应收金额（分）= totalNewPrice + laborFee - totalOldDeduct
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  party    Party?              @relation(fields: [partyId], references: [id])
+  oldItems ExchangeOldItem[]
+  newItems ExchangeNewItem[]
+  payments Payment[]
+
+  @@index([partyId])
+}
+
+model ExchangeOldItem {
+  id              Int      @id @default(autoincrement())
+  exchangeId      Int
+  inventoryItemId Int
+  deductAmount    Int      // 抵扣金额（分）
+  costAmount      Int      // 旧料成本（分）
+  costPureWeight  Int      // 成本纯金重（0.01g）
+  exchange        ExchangeOrder  @relation(fields: [exchangeId], references: [id], onDelete: Cascade)
+  inventory       InventoryItem  @relation(fields: [inventoryItemId], references: [id])
+
+  @@index([exchangeId])
+}
+
+model ExchangeNewItem {
+  id           Int      @id @default(autoincrement())
+  exchangeId   Int
+  productName  String
+  weight       Int?     // 新品重量（0.01g，可选）
+  salePrice    Int      // 售价（分）
+  laborFeeItem Int      // 单项工费（分）
+  exchange     ExchangeOrder @relation(fields: [exchangeId], references: [id], onDelete: Cascade)
+
+  @@index([exchangeId])
+}
+
+// ============ 旧料出售 ============
+model SellOrder {
+  id              Int      @id @default(autoincrement())
+  orderNo         String   @unique
+  partyId         Int?
+  totalPureWeight Int
+  totalAmount     Int
+  sellPrice       Int      // 出售单价（分/克）
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  party    Party?           @relation(fields: [partyId], references: [id])
+  items    SellOrderItem[]
+  payments Payment[]
+
+  @@index([partyId])
+}
+
+model SellOrderItem {
+  id              Int      @id @default(autoincrement())
+  sellOrderId     Int
+  inventoryItemId Int
+  pureWeight      Int
+  unitPrice       Int      // 出售单价（分/0.01g）
+  amount          Int
+  costAmount      Int      // 成本（分）
+  costPureWeight  Int      // 成本纯金重（0.01g）
+  sellOrder       SellOrder      @relation(fields: [sellOrderId], references: [id], onDelete: Cascade)
+  inventory       InventoryItem  @relation(fields: [inventoryItemId], references: [id])
+
+  @@index([sellOrderId])
+}
+
+// ============ 支付 ============
+model Payment {
+  id              Int      @id @default(autoincrement())
+  orderType       String   // RECYCLE | EXCHANGE | SELL（业务标识）
+  orderId         Int      // 业务关联ID（多态，保留便于通用查询）
+  recycleOrderId  Int?
+  exchangeOrderId Int?
+  sellOrderId     Int?
+  method          String   // cash | wechat | alipay | bank
+  amount          Int      // 支付金额（分）
+  direction       String   @default("IN") // IN（收）/ OUT（支）
+  createdAt       DateTime @default(now())
+
+  recycleOrder  RecycleOrder?  @relation(fields: [recycleOrderId], references: [id])
+  exchangeOrder ExchangeOrder? @relation(fields: [exchangeOrderId], references: [id])
+  sellOrder     SellOrder?     @relation(fields: [sellOrderId], references: [id])
+
+  @@index([orderType, orderId])
+}
+
+// ============ 盘点 ============
+model StocktakingOrder {
+  id        Int      @id @default(autoincrement())
+  orderNo   String   @unique
+  location  String?
+  status    String   @default("DRAFT") // DRAFT | CHECKING | COMPLETED | CANCELLED
+  remark    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items StocktakingItem[]
+}
+
+model StocktakingItem {
+  id                Int      @id @default(autoincrement())
+  stocktakingId     Int
+  inventoryItemId   Int
+  systemPureWeight  Int      // 系统纯金重
+  actualPureWeight  Int?     // 实盘纯金重
+  difference        Int?     // 差异（实盘-系统）
+  stocktaking       StocktakingOrder @relation(fields: [stocktakingId], references: [id], onDelete: Cascade)
+  inventory         InventoryItem    @relation(fields: [inventoryItemId], references: [id])
+
+  @@index([stocktakingId])
+}
+
+// ============ 审计日志 ============
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  entityType String
+  entityId   Int
+  action     String
+  oldValue   String?  // JSON 字符串（兼容 SQLite）
+  newValue   String?  // JSON 字符串
+  operator   String   @default("SYSTEM")
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
